@@ -17,41 +17,46 @@ namespace DependencyConsole
             // serviceConsumer.Print();
 
             var dependency = new DependencyContainer();
-            dependency.AddDependency<HelloService>();
-            dependency.AddDependency<ServiceConsumer>();
-            dependency.AddDependency<MessageService>();
+            dependency.AddTransient<HelloService>();
+            dependency.AddTransient<ServiceConsumer>();
+            dependency.AddSingleton<MessageService>();
 
             var resolver = new DependencyResolver(dependency);
             var serviceConsumer = resolver.GetService<ServiceConsumer>();
+            
             serviceConsumer.Print();
-            
-            
+            var messageService1 = resolver.GetService<ServiceConsumer>();
+            messageService1.Print();
+            var messageService2 = resolver.GetService<ServiceConsumer>();
+            messageService1.Print();
+            var messageService3 = resolver.GetService<ServiceConsumer>();
+            messageService1.Print();
             Console.ReadKey();
         }
     }
 
     public class DependencyContainer
     {
-        private readonly List<Type> _dependencies;
+        private readonly List<Dependency> _dependencies;
 
         public DependencyContainer()
         {
-            _dependencies = new List<Type>();
+            _dependencies = new List<Dependency>();
         }
 
-        public void AddDependency(Type type)
+        public void AddSingleton<T>()
         {
-            _dependencies.Add(type);
+            _dependencies.Add(new Dependency(typeof(T), DependencyLifetime.Singleton));
         }
 
-        public void AddDependency<T>()
+        public void AddTransient<T>()
         {
-            _dependencies.Add(typeof(T));
+            _dependencies.Add(new Dependency(typeof(T), DependencyLifetime.Transient));
         }
 
-        public Type GetDependency(Type type)
+        public Dependency GetDependency(Type type)
         {
-            return _dependencies.First(x => x. Name == type.Name);
+            return _dependencies.First(x => x.Type.Name == type.Name);
         }
     }
 
@@ -74,7 +79,7 @@ namespace DependencyConsole
         private object GetService(Type type)
         {
             var dependency = _container.GetDependency(type);
-            var constructor = dependency.GetConstructors().Single();
+            var constructor = dependency.Type.GetConstructors().Single();
             var parameters = constructor.GetParameters().ToArray();
             var parameterImplementations = new object[parameters.Length];
 
@@ -85,14 +90,49 @@ namespace DependencyConsole
                     parameterImplementations[i] = GetService(parameters[i].ParameterType);
                 }
 
-                return Activator.CreateInstance(dependency, parameterImplementations);
+                return CreateImplementation(dependency,
+                    t => Activator.CreateInstance(t,
+                        parameterImplementations));
             }
-            
 
-            return  Activator.CreateInstance(type);
+            return CreateImplementation(dependency, t => Activator.CreateInstance(t));
+        }
+
+        private object CreateImplementation(Dependency dependency, Func<Type, object> factory)
+        {
+            if (dependency.Implemented)
+                return dependency.Implementation;
+
+            var implementation = factory(dependency.Type);
+            if (dependency.Lifetime == DependencyLifetime.Singleton)
+            {
+                dependency.AddImplementation(implementation);
+            }
+            return  implementation;
         }
     }
-    
+
+    public class Dependency
+    {
+        public Dependency(Type type, DependencyLifetime lifetime)
+        {
+            Type = type;
+            Lifetime = lifetime;
+        }
+
+        public Type Type { get; set; }
+        public DependencyLifetime Lifetime { get; set; }
+
+        public object Implementation { get; set; }
+        public bool Implemented { get; set; }
+
+        public void AddImplementation(object impl)
+        {
+            Implementation = impl;
+            Implemented = true;
+        }
+    }
+
     public class ServiceConsumer
     {
         private readonly HelloService _helloService;
@@ -123,9 +163,22 @@ namespace DependencyConsole
 
     public class MessageService
     {
+        private readonly int _random;
+
+        public MessageService()
+        {
+            _random = new Random().Next();
+        }
         public string Message()
         {
-            return "Hi, how are you ?";
+            
+            return $"Hi, how are you ? ${_random}";
         }
+    }
+
+    public enum DependencyLifetime
+    {
+        Singleton = 0,
+        Transient
     }
 }
